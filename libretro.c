@@ -457,7 +457,9 @@ retro_load_game(const struct retro_game_info *info_)
   cdimage_set_sector(0);
   opera_3do_init(libopera_callback);
   video_init();
+#if !defined(SF2000)
   process_opts();
+#endif
   load_rom1();
   load_rom2();
 
@@ -579,7 +581,9 @@ retro_init(void)
   opera_cdrom_set_callbacks(cdimage_get_size,
                             cdimage_set_sector,
                             cdimage_read_sector);
+
 #if defined(SF2000)
+  process_opts();
   int rv = set_pixel_format();
 #endif
 }
