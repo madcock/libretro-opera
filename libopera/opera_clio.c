@@ -38,7 +38,7 @@
 #include "opera_xbus.h"
 
 #include "boolean.h"
-#include "prng16.h"
+#include "prng32.h"
 
 #include <string.h>
 
@@ -83,6 +83,13 @@ int TIMER_VAL = 0; //0x415
 static uint32_t *MADAM_REGS;
 static clio_t    CLIO = {0};
 
+static
+void
+opera_clio_set_rom()
+{
+  opera_mem_rom_select((CLIO.regs[0x84] & ADBIO_OTHERROM) ? ROM2 : ROM1);
+}
+
 uint32_t
 opera_clio_state_size(void)
 {
@@ -98,9 +105,14 @@ opera_clio_state_save(void *buf_)
 uint32_t
 opera_clio_state_load(const void *buf_)
 {
+  uint32_t rv;
+
   TIMER_VAL = 0;
 
-  return opera_state_load(&CLIO,"CLIO",buf_,sizeof(CLIO));
+  rv = opera_state_load(&CLIO,"CLIO",buf_,sizeof(CLIO));
+  opera_clio_set_rom();
+
+  return rv;
 }
 
 #define CURADR MADAM_REGS[base+0x00]
@@ -241,17 +253,18 @@ clio_handle_dma(uint32_t val_)
 
 static
 void
-if_set_set_reset(uint32_t *output_,
-                 uint32_t  val_,
-                 uint32_t  mask_chk_,
-                 uint32_t  mask_set_)
+adbio_set(uint32_t *output_,
+          uint32_t  val_,
+          uint32_t  bit_)
 {
-  if((val_ & mask_chk_) == mask_chk_)
-    {
-      *output_ = ((val_ & mask_set_) ?
-                  (*output_ |  mask_set_) :
-                  (*output_ & ~mask_set_));
-    }
+  uint32_t mask;
+
+  mask = (1 << bit_);
+
+  if((val_ & mask) == 0)
+    *output_ &= ~mask;
+  else if(val_ & (mask | (mask << 4)))
+    *output_ |= mask;
 }
 
 int
@@ -348,12 +361,12 @@ opera_clio_poke(uint32_t addr_,
     }
   else if(addr_ == 0x84)
     {
-      if_set_set_reset(&CLIO.regs[0x84],val_,0x10,0x01);
-      if_set_set_reset(&CLIO.regs[0x84],val_,0x20,0x02);
-      if_set_set_reset(&CLIO.regs[0x84],val_,0x40,0x04);
-      if_set_set_reset(&CLIO.regs[0x84],val_,0x80,0x08);
+      adbio_set(&CLIO.regs[0x84],val_,0);
+      adbio_set(&CLIO.regs[0x84],val_,1);
+      adbio_set(&CLIO.regs[0x84],val_,2);
+      adbio_set(&CLIO.regs[0x84],val_,3);
 
-      opera_mem_rom_select((val_ & 0x4) ? ROM2 : ROM1);
+      opera_clio_set_rom();
 
       return 0;
     }
@@ -569,6 +582,8 @@ opera_clio_peek(uint32_t addr_)
         return CLIO.regs[0x68];
       return 0;
     }
+  else if(addr_ == 0x3C) // RandSample
+    return prng32();
   else if(addr_ == 0x204)
     return CLIO.regs[0x200];
   else if(addr_ == 0x20C)
@@ -604,8 +619,8 @@ opera_clio_peek(uint32_t addr_)
       CLIO.dsp_address += 0x300;
       return opera_dsp_imem_read(CLIO.dsp_address);
     }
-  else if(addr_ == 0x17F0)
-    return prng16();
+  else if(addr_ == 0x17F0) // DSP NOISE
+    return prng32();
   else if(addr_ == 0x17D0) /* read DSP/ARM semaphore */
     return opera_dsp_arm_semaphore_read();
 
